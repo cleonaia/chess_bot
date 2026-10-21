@@ -1,289 +1,102 @@
-# Chess Bot
+# Super Chess Bot
 
-Chess Bot is a browser userscript that analyzes chess positions in real time and can suggest or execute moves using a UCI-compatible engine such as Stockfish. It is designed to work with Chess.com and Lichess through separate site adapters.
+Version **12.1.1** — fixes post-game reports ending in checkmate or stalemate.
 
-This project is intended for educational and personal analysis purposes. Using engine assistance or automation on Chess.com, Lichess, or any other chess platform may violate their Terms of Service and can lead to account restrictions or bans. Use it only where this is explicitly allowed.
+A GPL-3.0-or-later browser userscript for local chess analysis and move automation in standard player games on Chess.com and Lichess.
 
-## Features
+[![Multi-site install](https://img.shields.io/badge/Install-bundle.user.js-success?logo=tampermonkey)](dist/bundle.user.js)
+[![Chess.com install](https://img.shields.io/badge/Install-chesscom.user.js-orange?logo=chess.com)](dist/chesscom.user.js)
+[![License](https://img.shields.io/badge/License-GPL--3.0--or--later-blue.svg)](LICENSE)
 
-- Real-time position analysis using Stockfish or another UCI-compatible engine
-- Support for Chess.com and Lichess through modular site adapters
-- Move suggestions with evaluation, principal variation, and mate detection
-- Configurable search depth, thinking time, and move delay
-- Optional premove support for faster responses
-- Game history tracking and PGN import/export
-- Post-game reports with accuracy and evaluation analysis
-- In-page interface with board overlays and move scoresheets
-- Persistent local settings
-- Unit and integration tests using Vitest
+## What it does
 
-## How it works
+- Offers **Madman · max aggression**, an optional aggression-first policy with attacking candidate discovery and occasional evaluation concessions up to 120 cp.
+- Runs Stockfish locally in a worker for standard chess and Chess960 games.
+- Reads and submits standard moves through each site's controller integration. Automation starts disabled.
+- FEN-keyed premoves with no intentional delay: normal mode combines recapture chains, book replies and six opponent branches; Madman prepares early attacks and up to four additional captures of offered pieces.
+- Shows up to three Multi-PV engine lines with colored arrows, persistent across plies, optional opening-book choices, and a local scoresheet with PGN export.
+- Offers an on-demand post-game report. Its search runs to depth — depth 18 by default, settable from 10 to 26 — and only starts once the adapter reports a finished game.
+- Queries the Lichess Syzygy service for eligible standard positions with up to seven pieces. Lookups race local search, use a 256-entry in-memory cache keyed by full FEN, and keep DTZ (distance to zeroing) separate from DTM (distance to mate). The first usable result wins; a valid local search result returns without tablebase grace time.
+- Provides Ghost Mode for streaming. It hides the panel and board overlays; the closed Shadow DOM only encapsulates panel UI and does not promise undetectability.
 
-The application follows a modular pipeline:
+The completed [premove plan](docs/superpowers/plans/2026-10-14-hybrid-premove-engine.md), [refactor plan](docs/superpowers/plans/2026-10-13-reliability-and-architecture.md), and [execution ledger](docs/superpowers/plans/2026-10-13-execution-ledger.md) record the changes and verification.
 
-```text
-Chess website
-   |
-   v
-Site adapter
-   |
-   v
-Board state and move history
-   |
-   v
-Engine service / UCI client
-   |
-   v
-Best move and evaluation
-   |
-   v
-User interface or move execution
-```
+See the [support matrix](docs/support-matrix.md) for site scope and move-observation limits, and the [architecture notes](docs/architecture.md) for module responsibilities.
 
-1. The site adapter detects the active game, board orientation, legal moves, clocks, and opponent moves.
-2. The state manager converts the current position into a format understood by the engine.
-3. The engine service sends the position to Stockfish through the UCI protocol.
-4. The engine returns the best move, evaluation, principal variation, and search information.
-5. The interface displays the result through an overlay or panel.
-6. Depending on the configuration, the bot either suggests a move or executes it automatically.
+## Install
 
-## Project structure
+1. Install Tampermonkey or Violentmonkey.
+2. Install [the multi-site bundle](dist/bundle.user.js) for Chess.com and Lichess, or [the Chess.com build](dist/chesscom.user.js) for Chess.com only.
+3. Open a standard player game, wait for **Ready**, then enable automation.
 
-```text
-chess-bot/
-├── src/
-│   ├── app/                 # Application controller, scheduler, and global state
-│   ├── board/               # Board input, overlays, and ownership detection
-│   ├── chess/               # Chess rules, notation, positions, and variants
-│   ├── engine/              # Engine service, UCI client, search, premoves, timing
-│   ├── game/                # Game history, PGN handling, reports, and confirmation
-│   ├── settings/            # Settings model, schema, and storage
-│   ├── shared/              # Shared utilities and chess helpers
-│   ├── sites/               # Chess.com and Lichess adapters
-│   ├── ui/                  # Interface components, panel, icons, and styles
-│   ├── userscript/          # Userscript metadata and menu integration
-│   └── main.ts              # Application entry point
-├── tests/
-│   ├── integration/         # Integration tests
-│   └── unit/                # Unit tests
-├── dist/                    # Compiled userscript output
-├── docs/                    # Architecture and development documentation
-├── package.json
-├── vite.config.ts
-├── vitest.config.ts
-└── tsconfig.json
-```
+For Lichess, configure the userscript manager to inject into the page context. In Violentmonkey, enable **Settings → Advanced → Synchronous page mode** and reload the page.
 
-## Requirements
+> [!WARNING]
+> **Mobile Firefox & Lichess CSP**: Firefox for Android does not support synchronous `webRequestBlocking`, preventing userscript managers from patching CSP headers or nonces. Because Lichess enforces a strict nonce-based `<meta>` Content Security Policy, userscript managers on Firefox for Android cannot inject into the required page context and will report *"Could not inject script"* (or fail to capture the round controller).
+>
+> **Mobile recommendations:**
+> - **Chromium-based mobile browsers**: Use a browser with extension support like Kiwi Browser, Lemur, or Cromite, where Violentmonkey or Tampermonkey can inject normally.
+> - **Chess.com**: Works on mobile browsers without this restriction, as Chess.com does not enforce the same meta CSP.
+> - **Firefox Nightly / Fennec / Mull**: If `about:config` is accessible, toggling `security.csp.enable` to `false` disables CSP enforcement globally.
 
-- Node.js 18 or newer
-- Bun or npm
-- A userscript manager such as Tampermonkey or Violentmonkey
-- A UCI-compatible chess engine, preferably Stockfish
 
-## Installation
+## Madman · max aggression
 
-Clone the repository:
+Enable **Madman · max aggression** below **Blunder shield** in the panel. It defaults off and remembers your choice. Stockfish 19 Lite remains the search engine; Madman changes candidate discovery and final selection to favor attacking positions. Quiet moves can qualify when their searched continuation builds sustained pressure.
 
-```bash
-git clone [https://github.com/cleonaia/chess_bot.git](https://github.com/cleonaia/chess_bot.git)
-cd chess_bot
-```
+### How a turn works
 
-Install dependencies:
+1. **Establish a baseline.** Search up to six MultiPV lines. With a turn allocation of at least 80 ms, baseline search receives 65% of the allocation, reserving the rest for discovery. Below 80 ms, use the baseline alone.
+2. **Measure attacking pressure.** Legally replay each candidate. Count geometric attacks into the enemy king's surrounding squares, attacks by cheaper pieces on more valuable targets, pawn contact and checks. Also sample pressure after our next two moves in the legal searched PV. These style points rank candidates; they do not change engine centipawn scores or prove a tactic.
+3. **Apply the risk envelope.** Allow an estimated concession of up to 120 cp against the best analyzed candidate. The same 120 cp ceiling applies every turn, with no cooldown. Preserve known winning mates and exact tablebase results. Incomplete, unknown, mixed-depth or shallow baseline comparisons retain the engine move.
+4. **Discover additional moves.** Rank legal moves outside the baseline by immediate attacking features and propose up to four. An enabled opening book can contribute a hyper-aggressive suggestion, but it must be searched. Re-evaluate the proposals alongside the original engine move in one restricted search, using up to 75% of the time still available. Require a complete same-depth batch at depth six or deeper, a stable baseline evaluation and compliance with the risk envelope before replacing the existing choice.
+5. **Optionally check bait.** At turn allocations of at least 400 ms, remaining time can probe legal captures of the selected offered piece, to depth ten at most. “Bait checked” requires at least depth six and an estimated improvement of 100 cp for us if the opponent takes the offer. The probe uses the opponent's score perspective correctly; it annotates the selected move and does not inflate its root evaluation or predict human behavior.
+6. **Validate and submit.** Recheck the current game and position, display the chosen PV/evaluation, and use the existing site adapter and move-confirmation path. Failed optional work falls back to a usable result; cancellation discards stale work.
 
-```bash
-bun install
-```
+The 120 cp limit and style weights are experimental tuning, not guarantees of soundness or preserved engine strength. Optional searches share the turn deadline, but feature computation, graceful worker stop/drain and browser scheduling can exceed the search allocation. No full-game aggression, sacrifice-quality or strength benchmark has been established. The [verification record](docs/madman-verification.md) includes unit/integration checks and a small native-engine smoke test.
 
-Or with npm:
+### Interaction with other controls
 
-```bash
-npm install
-```
+| Control | While Madman is enabled |
+| --- | --- |
+| Target Elo | Deliberate weaker-move sampling is bypassed; Madman owns final selection. |
+| Blunder shield | The Elo shield is bypassed; Madman's own risk and mate rules apply. |
+| Opening book | Hyper-aggressive book suggestions require engine evaluation; instant book dispatch is suspended. |
+| Premove | Enables early attacking replies, six predicted branches plus up to four offered-piece capture branches, and deeper upgrades. Valid cache hits dispatch without another search or intentional delay. |
+| Background ponder | Madman premove preparation runs on the opponent's clock when Premove is on, even if Background ponder is off. With Premove off, background analysis can still run. |
+| Tablebases | A tablebase result that wins the existing race remains authoritative. |
+
+### Madman premoves
+
+Turn on the existing **Premove** control alongside Madman. The goal is maximum aggression and speed. Replies become available in stages:
+
+1. **Planned:** after our move is observed, arm the selected attack's legal PV continuation immediately. Also retain legal ways the opponent can capture the piece we just offered, even if the PV is short.
+2. **Prediction:** the opponent-turn depth-three search predicts six moves. Reuse its legal reply continuations immediately to fill empty branches. Their concession is unknown; they cannot replace our already planned attack.
+3. **Seed:** each branch's existing three-candidate depth-three search immediately selects an aggressive reply with the same 120 cp allowance. This adds no engine search.
+4. **Fast:** compare those candidates plus four extra attacking proposals at depth four and publish the selected attack. Add up to four omitted captures of our offered piece and prepare their replies first, so accepting bait can trigger an immediate punishment. A capture branch is prepared even if ordinary prediction fails. Each speculative search slice has an 80 ms deadline; worker draining can add overhead.
+5. **Full:** after breadth, upgrade branches using the six-line Madman baseline and optional attacking discovery, with 80–250 ms allocated per branch.
+
+The cache holds up to eleven entries: six ordinary branches, four additional captures and the independently planned continuation. Priority is full > fast > seed > planned > prediction, with known winning mates protected. All evaluated stages rank attacks within the same estimated 120 cp allowance; there is no cooldown. Depth-three and depth-four search can miss defenses or stronger legal moves. Planned/prediction continuations have no fresh comparison and no claimed cp guarantee. These are deliberate aggression/speed tradeoffs.
+
+The cache checks game identity, full canonical FEN including en passant and draw counters, history, relevant settings and legality. A hit submits through the normal site adapter after the opponent's move is observed; it does not queue a blind native site premove. A miss runs foreground Madman search. With Madman and Premove on, synthetic dynamic timing waits are skipped on both hits and misses. Cached dispatch does not wait for speculative worker drain.
+
+Normal-mode book/recapture/PV premoves remain separate. Madman does not blindly recapture offered pieces. Coverage depends on the opponent's reply and how much preparation finishes; **70% is a target, not a measured hit rate**. See the [research, measurements and trade-offs](docs/madman-improvement-research.md).
+
+See the [design](docs/superpowers/specs/2026-10-15-madman-design.md) and [implementation plan](docs/superpowers/plans/2026-10-15-madman-mode-pipeline.md).
 
 ## Development
 
-Start the development build:
+From this directory, run:
 
-```bash
-bun run dev
+```sh
+bun install --frozen-lockfile
+bun run check
 ```
 
-Or:
+The check runs Biome, TypeScript, Knip, Vitest, and both production builds. Run it locally before committing; this project has no hosted CI.
 
-```bash
-npm run dev
-```
-
-## Build
-
-Generate the production userscript:
-
-```bash
-bun run build
-```
-
-Or:
-
-```bash
-npm run build
-```
-
-The compiled userscript is placed in the `dist/` directory.
-
-## Tests
-
-Run the test suite:
-
-```bash
-bun run test
-```
-
-Or:
-
-```bash
-npm run test
-```
-
-## Installing the userscript
-
-1. Build the project:
-
-   ```bash
-   bun run build
-   ```
-
-2. Open Tampermonkey or Violentmonkey.
-3. Create a new userscript.
-4. Copy the contents of `dist/chesscom.user.js` or `dist/bundle.user.js`.
-5. Paste it into the userscript editor and save it.
-6. Open a supported chess website and check that the Chess Bot panel appears.
-
-## Configuration
-
-Settings are available from the in-page panel and are stored locally in the browser.
-
-| Setting | Description |
-|---|---|
-| Engine path | Path to the Stockfish or other UCI engine binary |
-| Search depth | Maximum search depth used by the engine |
-| Thinking time | Maximum time allowed per move |
-| Move delay | Delay before a move is executed |
-| Auto-move | Enables or disables automatic move execution |
-| Premove | Enables moves before the opponent responds |
-| Site | Selects the active site adapter |
-| UI overlay | Shows evaluations, best moves, and analysis on the board |
-
-## Supported platforms
-
-| Platform | Status |
-|---|---|
-| Chess.com | Supported |
-| Lichess | Supported |
-| Other sites | Planned |
-
-## Engine integration
-
-Chess Bot communicates with engines through the UCI protocol.
-
-```text
-> position startpos moves e2e4 e7e5
-> go movetime 1000
-
-< info depth 18 score cp 34 pv e2e4 e7e5 g1f3
-< bestmove g1f3
-```
-
-The bot parses the engine output to extract the best move, evaluation score, principal variation, search depth, and mate announcements.
-
-## Game reports
-
-After a game finishes, Chess Bot can generate a report that includes:
-
-- Move-by-move accuracy
-- Average centipawn loss
-- Best-move agreement
-- Blunders, mistakes, and inaccuracies
-- Evaluation trend graph
-- PGN export
-
-## Development commands
-
-```bash
-# Install dependencies
-bun install
-
-# Start development mode
-bun run dev
-
-# Build for production
-bun run build
-
-# Run tests
-bun run test
-```
-
-If you use npm, replace `bun` with `npm run`.
-
-## Code style
-
-The project uses TypeScript, Biome, Vite, and Vitest.
-
-Before submitting changes, run:
-
-```bash
-bun run lint
-bun run test
-```
-
-## Contributing
-
-1. Fork the repository.
-2. Create a feature branch:
-
-   ```bash
-   git checkout -b feature/my-feature
-   ```
-
-3. Make your changes.
-4. Add or update tests where relevant.
-5. Run the tests:
-
-   ```bash
-   bun run test
-   ```
-
-6. Commit the changes:
-
-   ```bash
-   git commit -m "Add: short description of the change"
-   ```
-
-7. Push the branch:
-
-   ```bash
-   git push origin feature/my-feature
-   ```
-
-8. Open a pull request.
-
-## Roadmap
-
-- Improve adaptive move timing
-- Expand opening-book support
-- Improve tablebase integration
-- Add more detailed post-game analytics
-- Support additional chess websites
-- Improve UI customization
+The [browser verification notes](docs/browser-verification.md) record results from earlier builds, including PyChess-era runs. Treat those results as historical observations, not current platform support or calibrated Elo evidence.
 
 ## License
 
-This project is licensed under the terms of the [LICENSE](./LICENSE) file.
-
-## Acknowledgements
-
-- [Stockfish](https://stockfishchess.org/)
-- [Vite](https://vitejs.dev/)
-- [Vitest](https://vitest.dev/)
-- [TypeScript](https://www.typescriptlang.org/)
+GPL-3.0-or-later. See [LICENSE](LICENSE) and the pinned engine resource notices in the generated userscript headers.
